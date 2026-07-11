@@ -167,3 +167,8 @@ app.get('/', (req, res) => res.send('DisPLU proxy OK'));
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`DisPLU proxy on ${PORT}`));
+
+app.get('/', (req, res) => res.send('DisPLU proxy OK'));
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`DisPLU proxy on ${PORT}`));

@@ -1,0 +1,17 @@
+{
+  "name": "displu-proxy",
+  "version": "1.0.0",
+  "description": "Proxy PLU pour DisPLU - recupere le reglement PLU depuis coordonnees GPS",
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "pdf-parse": "^1.1.1"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

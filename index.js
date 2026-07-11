@@ -163,10 +163,94 @@ app.get('/debug', async (req, res) => {
   }
 });
 
-app.get('/', (req, res) => res.send('DisPLU proxy OK'));
+// ============================================================
+//  ROUTE IA : /ask?lon=&lat=&question=
+//  Récupère le PLU + interroge Gemini Flash
+// ============================================================
+async function askGemini(zone, zoneLibelle, commune, reglementText, question) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error('GEMINI_API_KEY non configurée');
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`DisPLU proxy on ${PORT}`));
+  const model = 'gemini-2.0-flash';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+  const prompt = `Tu es un assistant spécialisé en urbanisme français. Tu réponds à un particulier ou un professionnel de l'immobilier sur ce qu'il peut faire sur une parcelle donnée.
+
+COMMUNE : ${commune}
+ZONE DE LA PARCELLE : ${zone} (${zoneLibelle})
+
+RÈGLEMENT PLU/PLUi APPLICABLE (texte intégral) :
+"""
+${reglementText}
+"""
+
+QUESTION DE L'UTILISATEUR :
+${question}
+
+CONSIGNES DE RÉPONSE :
+- Réponds UNIQUEMENT à partir du règlement ci-dessus, en te concentrant sur la zone ${zone}.
+- Cite l'article ou le passage précis du règlement qui justifie ta réponse.
+- Si le règlement ne permet pas de répondre avec certitude, dis-le clairement au lieu d'inventer.
+- Sois direct et concret. Commence par OUI / NON / SOUS CONDITIONS quand c'est possible.
+- Rappelle à la fin que cette réponse est indicative et qu'il faut vérifier auprès du service urbanisme de la commune avant tout projet.`;
+
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.2 }
+    })
+  });
+
+  if (!r.ok) {
+    const errTxt = await r.text();
+    throw new Error(`Gemini HTTP ${r.status} : ${errTxt.slice(0, 300)}`);
+  }
+  const data = await r.json();
+  const answer = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!answer) throw new Error('Réponse Gemini vide : ' + JSON.stringify(data).slice(0, 300));
+  return answer;
+}
+
+app.get('/ask', async (req, res) => {
+  const { lon, lat, question } = req.query;
+  if (!lon || !lat || !question) {
+    return res.status(400).json({ error: 'lon, lat et question requis' });
+  }
+
+  try {
+    const info = await getPluInfo(lon, lat);
+
+    if (info.isRnu) {
+      return res.json({ found: false, rnu: true, commune: info.commune,
+        message: `${info.commune} relève du Règlement National d'Urbanisme (RNU), pas d'un PLU.` });
+    }
+    if (!info.doc || !info.zone) {
+      return res.json({ found: false, commune: info.commune,
+        message: `Aucun règlement PLU exploitable trouvé pour cette parcelle.` });
+    }
+
+    const pdfUrl = buildReglementUrl(info.doc, info.zone);
+    const { text } = await extractPdfText(pdfUrl);
+
+    const zone = info.zone.properties.libelle;
+    const zoneLibelle = info.zone.properties.libelong;
+    const answer = await askGemini(zone, zoneLibelle, info.commune, text, question);
+
+    return res.json({
+      found: true,
+      commune: info.commune,
+      zone,
+      zoneLibelle,
+      question,
+      answer
+    });
+
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+});
 
 app.get('/', (req, res) => res.send('DisPLU proxy OK'));
 
